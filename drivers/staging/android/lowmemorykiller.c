@@ -304,9 +304,15 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 		int oom_score_adj;
 		if (tsk->flags & PF_KTHREAD)
 			continue;
-		if (lowmem_task_is_dying(tsk))
+
+		/* if task no longer has any memory ignore it */
+		if (test_task_flag(tsk, TIF_MM_RELEASED))
 			continue;
 
+		/* if task still dying ignore it */
+		if (test_task_flag(tsk, TIF_MEMDIE))
+			continue; 
+			
 		p = find_lock_task_mm(tsk);
 		if (!p)
 			continue;
@@ -366,11 +372,15 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 		set_tsk_thread_flag(selected, TIF_MEMDIE);
 		send_sig(SIGKILL, selected, 0);
 		rem -= selected_tasksize;
-	}
+		rcu_read_unlock();
+		/* give the system time to free up the memory */
+		msleep_interruptible(20);
+	} else
+		rcu_read_unlock();
+
 	lowmem_print(4, "lowmem_shrink %lu, %x, return %d\n",
-		     sc->nr_to_scan, sc->gfp_mask, rem);
-	rcu_read_unlock();
-	mutex_unlock(&lowmem_scan_mutex);
+		     nr_to_scan, sc->gfp_mask, rem);
+	mutex_unlock(&scan_mutex);
 	return rem;
 }
 
