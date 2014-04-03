@@ -56,9 +56,20 @@ restart:
 		enum lru_status ret;
 		ret = isolate(item, &lru->lock, cb_arg);
 		switch (ret) {
+		case LRU_REMOVED_RETRY:
+			assert_spin_locked(&nlru->lock);
 		case LRU_REMOVED:
-			lru->nr_items--;
-			removed++;
+			if (--nlru->nr_items == 0)
+				node_clear(nid, lru->active_nodes);
+			WARN_ON_ONCE(nlru->nr_items < 0);
+			isolated++;
+			/*
+			 * If the lru lock has been dropped, our list
+			 * traversal is now invalid and so we have to
+			 * restart from scratch.
+			 */
+			if (ret == LRU_REMOVED_RETRY)
+				goto restart;
 			break;
 		case LRU_ROTATE:
 			list_move_tail(item, &lru->list);
@@ -66,11 +77,11 @@ restart:
 		case LRU_SKIP:
 			break;
 		case LRU_RETRY:
-			if (!first_pass) {
-				first_pass = true;
-				break;
-			}
-			first_pass = false;
+			/*
+			 * The lru lock has been dropped, our list traversal is
+			 * now invalid and so we have to restart from scratch.
+			 */
+			assert_spin_locked(&nlru->lock);
 			goto restart;
 		default:
 			BUG();
@@ -106,12 +117,30 @@ unsigned long list_lru_dispose_all(struct list_lru *lru,
 	return disposed;
 }
 
-int list_lru_init(struct list_lru *lru)
+int list_lru_init_key(struct list_lru *lru, struct lock_class_key *key)
 {
 	spin_lock_init(&lru->lock);
 	INIT_LIST_HEAD(&lru->list);
 	lru->nr_items = 0;
 
+	lru->node = kzalloc(size, GFP_KERNEL);
+	if (!lru->node)
+		return -ENOMEM;
+
+	nodes_clear(lru->active_nodes);
+	for (i = 0; i < nr_node_ids; i++) {
+		spin_lock_init(&lru->node[i].lock);
+		if (key)
+			lockdep_set_class(&lru->node[i].lock, key);
+		INIT_LIST_HEAD(&lru->node[i].list);
+		lru->node[i].nr_items = 0;
+	}
 	return 0;
 }
-EXPORT_SYMBOL_GPL(list_lru_init);
+EXPORT_SYMBOL_GPL(list_lru_init_key);
+
+void list_lru_destroy(struct list_lru *lru)
+{
+	kfree(lru->node);
+}
+EXPORT_SYMBOL_GPL(list_lru_destroy);
