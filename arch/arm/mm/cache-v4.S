@@ -9,6 +9,7 @@
  */
 #include <linux/linkage.h>
 #include <linux/init.h>
+#include <asm/assembler.h>
 #include <asm/page.h>
 #include "proc-macros.S"
 
@@ -18,7 +19,7 @@
  *	Unconditionally clean and invalidate the entire icache.
  */
 ENTRY(v4_flush_icache_all)
-	mov	pc, lr
+	ret	lr
 ENDPROC(v4_flush_icache_all)
 
 /*
@@ -40,7 +41,7 @@ ENTRY(v4_flush_kern_cache_all)
 #ifdef CONFIG_CPU_CP15
 	mov	r0, #0
 	mcr	p15, 0, r0, c7, c7, 0		@ flush ID cache
-	mov	pc, lr
+	ret	lr
 #else
 	/* FALLTHROUGH */
 #endif
@@ -115,7 +116,7 @@ ENTRY(v4_dma_flush_range)
 	mov	r0, #0
 	mcr	p15, 0, r0, c7, c7, 0		@ flush ID cache
 #endif
-	mov	pc, lr
+	ret	lr
 
 /*
  *	dma_unmap_area(start, size, dir)
@@ -135,7 +136,7 @@ ENTRY(v4_dma_unmap_area)
  *	- dir	- DMA direction
  */
 ENTRY(v4_dma_map_area)
-	mov	pc, lr
+	ret	lr
 ENDPROC(v4_dma_unmap_area)
 ENDPROC(v4_dma_map_area)
 
