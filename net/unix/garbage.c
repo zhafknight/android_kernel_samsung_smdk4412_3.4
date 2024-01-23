@@ -128,12 +128,13 @@ void unix_inflight(struct file *fp)
 	if (s) {
 		struct unix_sock *u = unix_sk(s);
 		spin_lock(&unix_gc_lock);
-		if (atomic_long_inc_return(&u->inflight) == 1) {
+		if (!u->inflight) {
 			BUG_ON(!list_empty(&u->link));
 			list_add_tail(&u->link, &gc_inflight_list);
 		} else {
 			BUG_ON(list_empty(&u->link));
 		}
+		u->inflight++;
 		unix_tot_inflight++;
 		spin_unlock(&unix_gc_lock);
 	}
@@ -146,7 +147,8 @@ void unix_notinflight(struct file *fp)
 		struct unix_sock *u = unix_sk(s);
 		spin_lock(&unix_gc_lock);
 		BUG_ON(list_empty(&u->link));
-		if (atomic_long_dec_and_test(&u->inflight))
+		u->inflight--;
+		if (!u->inflight)
 			list_del_init(&u->link);
 		unix_tot_inflight--;
 		spin_unlock(&unix_gc_lock);
@@ -238,17 +240,17 @@ static void scan_children(struct sock *x, void (*func)(struct unix_sock *),
 
 static void dec_inflight(struct unix_sock *usk)
 {
-	atomic_long_dec(&usk->inflight);
+	usk->inflight--;
 }
 
 static void inc_inflight(struct unix_sock *usk)
 {
-	atomic_long_inc(&usk->inflight);
+	usk->inflight++;
 }
 
 static void inc_inflight_move_tail(struct unix_sock *u)
 {
-	atomic_long_inc(&u->inflight);
+	u->inflight++;
 	/*
 	 * If this still might be part of a cycle, move it to the end
 	 * of the list, so that it's checked even if it was already
@@ -320,7 +322,7 @@ void unix_gc(void)
 		long inflight_refs;
 
 		total_refs = file_count(sk->sk_socket->file);
-		inflight_refs = atomic_long_read(&u->inflight);
+		inflight_refs = u->inflight;
 
 		BUG_ON(inflight_refs < 1);
 		BUG_ON(total_refs < inflight_refs);
@@ -358,7 +360,7 @@ void unix_gc(void)
 		/* Move cursor to after the current position. */
 		list_move(&cursor, &u->link);
 
-		if (atomic_long_read(&u->inflight) > 0) {
+		if (u->inflight) {
 			list_move_tail(&u->link, &not_cycle_list);
 			u->gc_maybe_cycle = 0;
 			scan_children(&u->sk, inc_inflight_move_tail, NULL);
