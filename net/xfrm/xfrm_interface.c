@@ -321,8 +321,8 @@ xfrmi_xmit2(struct sk_buff *skb, struct net_device *dev, struct flowi *fl)
 
 	if (tdev == dev) {
 		stats->collisions++;
-		net_warn_ratelimited("%s: Local routing loop detected!\n",
-				     xi->p.name);
+		pr_warn_ratelimited("%s: Local routing loop detected!\n",
+				    xi->p.name);
 		goto tx_err_dst_release;
 	}
 
