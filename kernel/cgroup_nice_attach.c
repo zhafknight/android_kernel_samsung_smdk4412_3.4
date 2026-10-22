@@ -26,4 +26,3 @@ int cgroup_nice_allow_attach(struct cgroup_subsys_state *css,
 
 	return 0;
 }
-
