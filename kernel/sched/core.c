@@ -1778,7 +1778,7 @@ static void update_child_burst_topological(
 		dec = child;
 		while ((dcnt = count_child_tasks(dec)) == 1)
 			dec = list_first_entry(&dec->children, struct task_struct, sibling);
-		
+
 		if (!dcnt || !depth) {
 			if (!task_is_inheritable(dec)) continue;
 			cnt++;

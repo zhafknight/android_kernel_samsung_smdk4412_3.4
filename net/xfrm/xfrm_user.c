@@ -1774,7 +1774,7 @@ static int build_aevent(struct sk_buff *skb, struct xfrm_state *x, const struct 
 	if (xfrm_mark_put(skb, &x->mark))
 		goto nla_put_failure;
 
-	if (xfrm_if_id_put(skb, x->if_id)) 
+	if (xfrm_if_id_put(skb, x->if_id))
 		goto nla_put_failure;
 
 	return nlmsg_end(skb, nlh);
@@ -3067,4 +3067,3 @@ module_init(xfrm_user_init);
 module_exit(xfrm_user_exit);
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_NET_PF_PROTO(PF_NETLINK, NETLINK_XFRM);
-
