@@ -21,6 +21,7 @@
 #include <linux/list.h>
 #include <linux/mm.h>
 #include <linux/module.h>
+#include <linux/ratelimit.h>
 #include <linux/rtmutex.h>
 #include <linux/rbtree.h>
 #include <linux/seq_file.h>
@@ -39,7 +40,7 @@ enum {
 	BINDER_DEBUG_BUFFER_ALLOC           = 1U << 2,
 	BINDER_DEBUG_BUFFER_ALLOC_ASYNC     = 1U << 3,
 };
-static uint32_t binder_alloc_debug_mask;
+static uint32_t binder_alloc_debug_mask = BINDER_DEBUG_USER_ERROR;
 
 module_param_named(debug_mask, binder_alloc_debug_mask,
 		   uint, S_IWUSR | S_IRUGO);
@@ -47,7 +48,7 @@ module_param_named(debug_mask, binder_alloc_debug_mask,
 #define binder_alloc_debug(mask, x...) \
 	do { \
 		if (binder_alloc_debug_mask & mask) \
-			pr_info(x); \
+			pr_info_ratelimited(x); \
 	} while (0)
 
 static struct binder_buffer *binder_buffer_next(struct binder_buffer *buffer)
@@ -418,11 +419,14 @@ static struct binder_buffer *binder_alloc_new_buf_locked(
 			if (buffer_size > largest_free_size)
 				largest_free_size = buffer_size;
 		}
-		pr_err("%d: binder_alloc_buf size %zd failed, no address space\n",
+		binder_alloc_debug(BINDER_DEBUG_USER_ERROR,
+			"%d: binder_alloc_buf size %zd failed, no address space\n",
 			alloc->pid, size);
-		pr_err("allocated: %zd (num: %zd largest: %zd), free: %zd (num: %zd largest: %zd)\n",
-		       total_alloc_size, allocated_buffers, largest_alloc_size,
-		       total_free_size, free_buffers, largest_free_size);
+		binder_alloc_debug(BINDER_DEBUG_USER_ERROR,
+			"allocated: %zd (num: %zd largest: %zd), free: %zd (num: %zd largest: %zd)\n",
+			total_alloc_size, allocated_buffers,
+			largest_alloc_size, total_free_size,
+			free_buffers, largest_free_size);
 		return ERR_PTR(-ENOSPC);
 	}
 	if (n == NULL) {
