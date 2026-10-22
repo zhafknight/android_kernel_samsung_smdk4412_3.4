@@ -26,6 +26,7 @@
 #include <linux/init.h>
 #include <linux/route.h>
 #include <linux/rtnetlink.h>
+#include <linux/ratelimit.h>
 #include <linux/netfilter_ipv6.h>
 #include <linux/slab.h>
 #include <linux/hash.h>
