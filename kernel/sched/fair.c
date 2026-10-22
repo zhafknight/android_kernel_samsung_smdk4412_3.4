@@ -699,7 +699,7 @@ static inline u32 log2plus1_u64_u32f8(u64 v) {
 
 static inline u32 calc_burst_penalty(u64 burst_time) {
 	u32 greed, tolerance, penalty, scaled_penalty;
-	
+
 	greed = log2plus1_u64_u32f8(burst_time);
 	tolerance = sched_burst_penalty_offset << 8;
 	penalty = max(0, (s32)greed - (s32)tolerance);
@@ -734,7 +734,7 @@ static void update_burst_score(struct sched_entity *se) {
 
 	u8 new_prio = min(39, prio + se->burst_score);
 	if (new_prio != prev_prio)
-	 	reweight_task(p, new_prio);
+		reweight_task(p, new_prio);
 }
 
 static void update_burst_penalty(struct sched_entity *se) {
