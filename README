@@ -1,6 +1,6 @@
 Requires GCC 11 or newer. GCC 10 and older releases are not supported.
-Tested with arm-gnu-toolchain-15.3.rel1-x86_64-arm-none-eabi.
-https://gitlab.arm.com/tooling/gnu-toolchains-for-arm/-/tree/releases/15.3.rel1
+Tested with arm-gnu-toolchain-15.3.rel2-x86_64-arm-none-eabi.
+https://gitlab.arm.com/tooling/gnu-toolchains-for-arm/-/tree/releases/15.3.rel2
 
 Linux kernel release 3.x <http://kernel.org/>
 
