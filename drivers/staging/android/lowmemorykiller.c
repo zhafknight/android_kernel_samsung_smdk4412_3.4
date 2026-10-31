@@ -41,6 +41,7 @@
 #include <linux/rcupdate.h>
 #include <linux/notifier.h>
 #include <linux/mutex.h>
+#include <linux/delay.h>
 
 #ifdef CONFIG_HIGHMEM
 #define _ZONE ZONE_HIGHMEM
@@ -92,20 +93,20 @@ task_notify_func(struct notifier_block *self, unsigned long val, void *data)
 	return NOTIFY_OK;
 }
 
-static bool lowmem_task_is_dying(struct task_struct *task)
+static int test_task_flag(struct task_struct *task, int flag)
 {
 	struct task_struct *thread;
 
 	for_each_thread(task, thread) {
 		task_lock(thread);
-		if (test_tsk_thread_flag(thread, TIF_MEMDIE)) {
+		if (test_tsk_thread_flag(thread, flag)) {
 			task_unlock(thread);
-			return true;
+			return 1;
 		}
 		task_unlock(thread);
 	}
 
-	return false;
+	return 0;
 }
 
 #ifdef CONFIG_ANDROID_LMK_ADJ_RBTREE
@@ -241,6 +242,7 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 #endif
 	int other_file = global_page_state(NR_ACTIVE_FILE) +
 			 global_page_state(NR_INACTIVE_FILE);
+	unsigned long nr_to_scan = sc->nr_to_scan;
 
 	/*
 	 * If we already have a death outstanding, then
@@ -380,7 +382,7 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 
 	lowmem_print(4, "lowmem_shrink %lu, %x, return %d\n",
 		     nr_to_scan, sc->gfp_mask, rem);
-	mutex_unlock(&scan_mutex);
+	mutex_unlock(&lowmem_scan_mutex);
 	return rem;
 }
 

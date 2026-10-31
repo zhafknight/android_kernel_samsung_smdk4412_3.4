@@ -6,55 +6,86 @@
  */
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mm.h>
 #include <linux/list_lru.h>
+#include <linux/slab.h>
 
 bool list_lru_add(struct list_lru *lru, struct list_head *item)
 {
-	spin_lock(&lru->lock);
+	int nid = page_to_nid(virt_to_page(item));
+	struct list_lru_node *nlru = &lru->node[nid];
+
+	spin_lock(&nlru->lock);
+	WARN_ON_ONCE(nlru->nr_items < 0);
 	if (list_empty(item)) {
-		list_add_tail(item, &lru->list);
-		lru->nr_items++;
-		spin_unlock(&lru->lock);
+		list_add_tail(item, &nlru->list);
+		if (nlru->nr_items++ == 0)
+			node_set(nid, lru->active_nodes);
+		spin_unlock(&nlru->lock);
 		return true;
 	}
-	spin_unlock(&lru->lock);
+	spin_unlock(&nlru->lock);
 	return false;
 }
 EXPORT_SYMBOL_GPL(list_lru_add);
 
 bool list_lru_del(struct list_lru *lru, struct list_head *item)
 {
-	spin_lock(&lru->lock);
+	int nid = page_to_nid(virt_to_page(item));
+	struct list_lru_node *nlru = &lru->node[nid];
+
+	spin_lock(&nlru->lock);
 	if (!list_empty(item)) {
 		list_del_init(item);
-		lru->nr_items--;
-		spin_unlock(&lru->lock);
+		if (--nlru->nr_items == 0)
+			node_clear(nid, lru->active_nodes);
+		WARN_ON_ONCE(nlru->nr_items < 0);
+		spin_unlock(&nlru->lock);
 		return true;
 	}
-	spin_unlock(&lru->lock);
+	spin_unlock(&nlru->lock);
 	return false;
 }
 EXPORT_SYMBOL_GPL(list_lru_del);
 
-unsigned long list_lru_walk(struct list_lru *lru, list_lru_walk_cb isolate,
-			    void *cb_arg, unsigned long nr_to_walk)
+unsigned long
+list_lru_count_node(struct list_lru *lru, int nid)
 {
-	struct list_head *item, *n;
-	unsigned long removed = 0;
-	/*
-	 * If we don't keep state of at which pass we are, we can loop at
-	 * LRU_RETRY, since we have no guarantees that the caller will be able
-	 * to do something other than retry on the next pass. We handle this by
-	 * allowing at most one retry per object. This should not be altered
-	 * by any condition other than LRU_RETRY.
-	 */
-	bool first_pass = true;
+	unsigned long count = 0;
+	struct list_lru_node *nlru = &lru->node[nid];
 
-	spin_lock(&lru->lock);
+	spin_lock(&nlru->lock);
+	WARN_ON_ONCE(nlru->nr_items < 0);
+	count += nlru->nr_items;
+	spin_unlock(&nlru->lock);
+
+	return count;
+}
+EXPORT_SYMBOL_GPL(list_lru_count_node);
+
+unsigned long
+list_lru_walk_node(struct list_lru *lru, int nid, list_lru_walk_cb isolate,
+		   void *cb_arg, unsigned long *nr_to_walk)
+{
+
+	struct list_lru_node	*nlru = &lru->node[nid];
+	struct list_head *item, *n;
+	unsigned long isolated = 0;
+
+	spin_lock(&nlru->lock);
 restart:
-	list_for_each_safe(item, n, &lru->list) {
+	list_for_each_safe(item, n, &nlru->list) {
 		enum lru_status ret;
-		ret = isolate(item, &lru->lock, cb_arg);
+
+		/*
+		 * decrement nr_to_walk first so that we don't livelock if we
+		 * get stuck on large numbesr of LRU_RETRY items
+		 */
+		if (!*nr_to_walk)
+			break;
+		--*nr_to_walk;
+
+		ret = isolate(item, &nlru->lock, cb_arg);
 		switch (ret) {
 		case LRU_REMOVED_RETRY:
 			assert_spin_locked(&nlru->lock);
@@ -72,7 +103,7 @@ restart:
 				goto restart;
 			break;
 		case LRU_ROTATE:
-			list_move_tail(item, &lru->list);
+			list_move_tail(item, &nlru->list);
 			break;
 		case LRU_SKIP:
 			break;
@@ -86,42 +117,17 @@ restart:
 		default:
 			BUG();
 		}
-
-		if (nr_to_walk-- == 0)
-			break;
-
 	}
-	spin_unlock(&lru->lock);
-	return removed;
+
+	spin_unlock(&nlru->lock);
+	return isolated;
 }
-EXPORT_SYMBOL_GPL(list_lru_walk);
-
-unsigned long list_lru_dispose_all(struct list_lru *lru,
-				   list_lru_dispose_cb dispose)
-{
-	unsigned long disposed = 0;
-	LIST_HEAD(dispose_list);
-
-	spin_lock(&lru->lock);
-	while (!list_empty(&lru->list)) {
-		list_splice_init(&lru->list, &dispose_list);
-		disposed += lru->nr_items;
-		lru->nr_items = 0;
-		spin_unlock(&lru->lock);
-
-		dispose(&dispose_list);
-
-		spin_lock(&lru->lock);
-	}
-	spin_unlock(&lru->lock);
-	return disposed;
-}
+EXPORT_SYMBOL_GPL(list_lru_walk_node);
 
 int list_lru_init_key(struct list_lru *lru, struct lock_class_key *key)
 {
-	spin_lock_init(&lru->lock);
-	INIT_LIST_HEAD(&lru->list);
-	lru->nr_items = 0;
+	int i;
+	size_t size = sizeof(*lru->node) * nr_node_ids;
 
 	lru->node = kzalloc(size, GFP_KERNEL);
 	if (!lru->node)
