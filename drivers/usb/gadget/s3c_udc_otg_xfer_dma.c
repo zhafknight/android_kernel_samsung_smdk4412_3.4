@@ -813,12 +813,23 @@ static int s3c_ep0_write(struct s3c_udc *dev)
 	return 1;
 }
 
+static struct s3c_ep *s3c_ep_from_windex(struct s3c_udc *dev, u16 windex)
+{
+	u32 idx = windex & USB_ENDPOINT_NUMBER_MASK;
+
+	/* reserved bits (4..6) must be zero */
+	if ((windex & 0x7f) != idx || idx >= S3C_MAX_ENDPOINTS)
+		return NULL;
+
+	return &dev->ep[idx];
+}
+
 u16     g_status __attribute__((aligned(8)));
 
 static int s3c_udc_get_status(struct s3c_udc *dev,
 		struct usb_ctrlrequest *crq)
 {
-	u8 ep_num = crq->wIndex & 0x7F;
+	struct s3c_ep *ep_sel;
 	u32 ep_ctrl;
 
 	DEBUG_SETUP("%s: *** USB_REQ_GET_STATUS\n", __func__);
@@ -843,7 +854,11 @@ static int s3c_udc_get_status(struct s3c_udc *dev,
 			return 1;
 		}
 
-		g_status = dev->ep[ep_num].stopped;
+		ep_sel = s3c_ep_from_windex(dev, crq->wIndex);
+		if (!ep_sel)
+			return 1;
+
+		g_status = ep_sel->stopped;
 		DEBUG_SETUP("\tGET_STATUS: USB_RECIP_ENDPOINT,"
 			"g_stauts = %d\n", g_status);
 
@@ -1262,7 +1277,7 @@ static void s3c_ep0_setup(struct s3c_udc *dev)
 {
 	struct s3c_ep *ep = &dev->ep[0];
 	int i, is_in;
-	u8 ep_num;
+	struct s3c_ep *ep_sel;
 	struct usb_ctrlrequest *usb_ctrl = dev->usb_ctrl;
 
 	/* Nuke all previous transfers */
@@ -1310,6 +1325,18 @@ static void s3c_ep0_setup(struct s3c_udc *dev)
 						== USB_TYPE_STANDARD;
 	dev->req_config = 0;
 	dev->req_pending = 1;
+
+	/* Reject endpoint requests that name a non-existent endpoint */
+	if (dev->req_std &&
+	    (usb_ctrl->bRequest == USB_REQ_GET_STATUS ||
+	     usb_ctrl->bRequest == USB_REQ_CLEAR_FEATURE ||
+	     usb_ctrl->bRequest == USB_REQ_SET_FEATURE) &&
+	    (usb_ctrl->bRequestType & USB_RECIP_MASK) == USB_RECIP_ENDPOINT &&
+	    !s3c_ep_from_windex(dev, usb_ctrl->wIndex)) {
+		s3c_udc_ep0_set_stall(ep);
+		dev->ep0state = WAIT_FOR_SETUP;
+		return;
+	}
 
 	/* Handle some SETUP packets ourselves */
 	switch (usb_ctrl->bRequest) {
@@ -1364,15 +1391,27 @@ static void s3c_ep0_setup(struct s3c_udc *dev)
 		break;
 
 	case USB_REQ_CLEAR_FEATURE:
-		ep_num = usb_ctrl->wIndex & 0x7f;
+		/* only standard requests; vendor/class ones go to the gadget */
+		if (!dev->req_std)
+			break;
 
-		if (!s3c_udc_clear_feature(&dev->ep[ep_num].ep))
+		ep_sel = s3c_ep_from_windex(dev, usb_ctrl->wIndex);
+		if (!ep_sel)
+			ep_sel = ep;	/* device/interface recipient */
+
+		if (!s3c_udc_clear_feature(&ep_sel->ep))
 			return;
 		break;
 	case USB_REQ_SET_FEATURE:
-		ep_num = usb_ctrl->wIndex & 0x7f;
+		/* only standard requests; vendor/class ones go to the gadget */
+		if (!dev->req_std)
+			break;
 
-		if (!s3c_udc_set_feature(&dev->ep[ep_num].ep))
+		ep_sel = s3c_ep_from_windex(dev, usb_ctrl->wIndex);
+		if (!ep_sel)
+			ep_sel = ep;	/* device/interface recipient */
+
+		if (!s3c_udc_set_feature(&ep_sel->ep))
 			return;
 		break;
 	default:
