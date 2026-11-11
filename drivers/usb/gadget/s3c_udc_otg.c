@@ -612,13 +612,12 @@ static void reset_usbd(void)
 	while (__raw_readl(dev->regs + S3C_UDC_OTG_GRSTCTL) & 0x20)
 		;
 
-	/* 13. Clear NAK bit of OUT EP0*/
-	/* For Slave mode*/
-	__raw_writel(DEPCTL_CNAK,
-		dev->regs + S3C_UDC_OTG_DOEPCTL(EP0_CON));
-
-	/* 14. Initialize OTG Link Core.*/
+	/* 13. Initialize OTG Link Core.*/
 	__raw_writel(GAHBCFG_INIT, dev->regs + S3C_UDC_OTG_GAHBCFG);
+
+	/* 14. Arm OUT EP0 for SETUP packets (DMA mode).*/
+	if (dev->usb_ctrl)
+		s3c_udc_pre_setup(dev);
 }
 
 static void reconfig_usbd(void)
@@ -906,6 +905,11 @@ static void s3c_udc_soft_connect(void)
 	u32 uTemp;
 
 	DEBUG("[%s]\n", __func__);
+
+	/* EP0 OUT must be armed before the host can see (and reset) us */
+	if (dev->usb_ctrl)
+		s3c_udc_pre_setup(dev);
+
 	uTemp = __raw_readl(dev->regs + S3C_UDC_OTG_DCTL);
 	uTemp = uTemp & ~SOFT_DISCONNECT;
 	__raw_writel(uTemp, dev->regs + S3C_UDC_OTG_DCTL);

@@ -535,6 +535,9 @@ static irqreturn_t s3c_udc_irq(int irq, void *_dev)
 			DEBUG_ISR("\t\tRESET handling skipped\n");
 			__pm_wakeup_event(&dev->usbd_wake_lock, 5000);
 			printk(KERN_DEBUG "usb: reset\n");
+            /* Bus reset aborts control transfers: re-arm EP0 OUT on every reset. */
+			dev->ep0state = WAIT_FOR_SETUP;
+			s3c_udc_pre_setup(dev);
 			/* report disconnect; the driver is already quiesced */
 			if (dev->driver) {
 				spin_unlock(&dev->lock);
