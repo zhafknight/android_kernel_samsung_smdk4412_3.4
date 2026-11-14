@@ -347,8 +347,11 @@ struct s3c_fb_win_config_data {
 	struct s3c_fb_win_config config[S3C_FB_MAX_WIN];
 };
 
+struct sync_fence;
+
 struct s3c_reg_data {
 	struct list_head	list;
+	struct sync_fence	*acquire_fence[S3C_FB_MAX_WIN];
 	u32			shadowcon;
 	u32			wincon[S3C_FB_MAX_WIN];
 	u32			win_rgborder[S3C_FB_MAX_WIN];
@@ -484,6 +487,8 @@ extern int s3cfb_check_vsync_status(struct s3cfb_global *ctrl);
 extern int s3cfb_set_dualrgb(struct s3cfb_global *ctrl, int mode);
 extern int s3cfb_set_window_protect(struct s3cfb_global *ctrl, int id, bool protect);
 extern void s3c_fb_update_regs(struct s3cfb_global *fbdev, struct s3c_reg_data *regs);
+extern void s3c_fb_wait_acquire_fences(struct s3cfb_global *fbdev, struct s3c_reg_data *regs);
+extern void s3c_fb_put_acquire_fences(struct s3c_reg_data *regs);
 #ifdef CONFIG_FB_S5P_SYSMMU
 extern void s3cfb_clean_outer_pagetable(unsigned long vaddr, size_t size);
 #endif

@@ -1904,6 +1904,37 @@ err_invalid:
 	return ret;
 }
 
+#define S3C_FB_ACQUIRE_FENCE_TIMEOUT_MS	1000
+
+void s3c_fb_put_acquire_fences(struct s3c_reg_data *regs)
+{
+	int i;
+
+	for (i = 0; i < S3C_FB_MAX_WIN; i++) {
+		if (regs->acquire_fence[i]) {
+			sync_fence_put(regs->acquire_fence[i]);
+			regs->acquire_fence[i] = NULL;
+		}
+	}
+}
+
+void s3c_fb_wait_acquire_fences(struct s3cfb_global *fbdev,
+		struct s3c_reg_data *regs)
+{
+	int i, err;
+
+	for (i = 0; i < S3C_FB_MAX_WIN; i++) {
+		if (!regs->acquire_fence[i])
+			continue;
+		err = sync_fence_wait(regs->acquire_fence[i],
+				S3C_FB_ACQUIRE_FENCE_TIMEOUT_MS);
+		if (err < 0)
+			dev_warn(fbdev->dev, "win%d acquire fence wait failed: %d\n",
+					i, err);
+	}
+	s3c_fb_put_acquire_fences(regs);
+}
+
 static int s3c_fb_set_win_config(struct s3cfb_global *fbdev,
 		struct s3c_fb_win_config_data *win_data)
 {
@@ -1915,7 +1946,7 @@ static int s3c_fb_set_win_config(struct s3cfb_global *fbdev,
 	struct s3c_reg_data *regs;
 	struct sync_fence *fence;
 	struct sync_pt *pt;
-	int fd;
+	int fd = 0;
 
 	if (fbdev->support_fence == FENCE_SUPPORT)
 	fd = get_unused_fd();
@@ -1969,6 +2000,10 @@ static int s3c_fb_set_win_config(struct s3cfb_global *fbdev,
 			if (!ret) {
 				enabled = 1;
 				color_map = 0;
+				if (fbdev->support_fence == FENCE_SUPPORT &&
+						config->fence_fd >= 0)
+					regs->acquire_fence[i] =
+						sync_fence_fdget(config->fence_fd);
 			}
 			break;
 		default:
@@ -1987,6 +2022,7 @@ static int s3c_fb_set_win_config(struct s3cfb_global *fbdev,
 
 	if ((fbdev->support_fence == FENCE_SUPPORT) && ret) {
 		put_unused_fd(fd);
+		s3c_fb_put_acquire_fences(regs);
 		kfree(regs);
 	} else {
 		mutex_lock(&fbdev->update_regs_list_lock);

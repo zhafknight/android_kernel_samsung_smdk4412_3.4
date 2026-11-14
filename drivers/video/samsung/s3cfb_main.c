@@ -476,6 +476,7 @@ static void s3c_fb_update_regs_handler(struct kthread_work *work)
 	mutex_unlock(&fbdev->update_regs_list_lock);
 
 	list_for_each_entry_safe(data, next, &saved_list, list) {
+		s3c_fb_wait_acquire_fences(fbdev, data);
 		s3c_fb_update_regs(fbdev, data);
 		list_del(&data->list);
 		kfree(data);
