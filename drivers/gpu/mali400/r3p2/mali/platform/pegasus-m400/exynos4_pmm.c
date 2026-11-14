@@ -93,13 +93,15 @@ mali_runtime_resume_table mali_runtime_resume = {266, 900000, 1}; /* step 1 */
 mali_runtime_resume_table mali_runtime_resume = {160, 950000, 1}; /* step 1 */
 #endif
 
+#define MALI_DVFS_STAY_COUNT	10
+
 /* dvfs table */
 mali_dvfs_table mali_dvfs[MALI_DVFS_STEPS]={
 #if defined(CONFIG_CPU_EXYNOS4212) || defined(CONFIG_CPU_EXYNOS4412)
 			/* step 0 */{160  ,1000000	,875000	, 0   , 70},
-			/* step 1 */{266  ,1000000	,900000	,62   , 90},
-			/* step 2 */{350  ,1000000	,950000	,85   , 90},
-			/* step 3 */{440  ,1000000	,1025000   ,85   , 90},
+			/* step 1 */{266  ,1000000	,900000	,40   , 80},
+			/* step 2 */{350  ,1000000	,950000	,50   , 80},
+			/* step 3 */{440  ,1000000	,1025000   ,55   , 90},
 			/* step 4 */{533  ,1000000	,1075000   ,95   ,100} };
 #else
 			/* step 0 */{100  ,1000000	, 950000   ,0   , 85},
@@ -247,6 +249,10 @@ static mali_bool mali_vol_lock_flag = 0;
 #ifdef CONFIG_MALI_DVFS
 module_param(mali_dvfs_control, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP| S_IROTH); /* rw-rw-r-- */
 MODULE_PARM_DESC(mali_dvfs_control, "Mali Current DVFS");
+
+static int mali_dvfs_target_load = 80;
+module_param(mali_dvfs_target_load, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+MODULE_PARM_DESC(mali_dvfs_target_load, "Mali DVFS target load after boost, 50-95 percent");
 
 DEVICE_ATTR(time_in_state, S_IRUGO|S_IWUSR, show_time_in_state, set_time_in_state);
 MODULE_PARM_DESC(time_in_state, "Time-in-state of Mali DVFS");
@@ -799,10 +805,21 @@ mali_bool mali_dvfs_table_update(void)
 }
 #endif
 
+static unsigned int mali_dvfs_max_step(void)
+{
+	unsigned int max = MALI_DVFS_STEPS - 1;
+
+	if (max > 3 && samsung_rev() < EXYNOS4412_REV_2_0)
+		max = 3;
+
+	return max;
+}
+
 static unsigned int decideNextStatus(unsigned int utilization)
 {
 	static unsigned int level = 0;
 	int iStepCount = 0;
+	unsigned int max_step = mali_dvfs_max_step();
 	if (mali_runtime_resumed >= 0) {
 		level = mali_runtime_resumed;
 		mali_runtime_resumed = -1;
@@ -810,11 +827,20 @@ static unsigned int decideNextStatus(unsigned int utilization)
 
 	if (mali_dvfs_control == 0 && level == get_mali_dvfs_status()) {
 		if (utilization > (int)(255 * mali_dvfs[maliDvfsStatus.currentStep].upthreshold / 100) &&
-				level < MALI_DVFS_STEPS - 1) {
-			level++;
-			if ((samsung_rev() < EXYNOS4412_REV_2_0) && 3 == get_mali_dvfs_status()) {
-				level=get_mali_dvfs_status();
-			}
+				level < max_step) {
+			unsigned int target = mali_dvfs_target_load;
+			unsigned int load = utilization * 100 / 255;
+			unsigned int need, next = level + 1;
+
+			if (target < 50)
+				target = 50;
+			else if (target > 95)
+				target = 95;
+
+			need = mali_dvfs[level].clock * load / target;
+			while (next < max_step && mali_dvfs[next].clock < need)
+				next++;
+			level = next;
 		}
 		else if (utilization < (int)(255 * mali_dvfs[maliDvfsStatus.currentStep].downthreshold / 100) &&
 				level > 0) {
@@ -843,7 +869,7 @@ static mali_bool mali_dvfs_status(unsigned int utilization)
 	unsigned int nextStatus = 0;
 	unsigned int curStatus = 0;
 	mali_bool boostup = MALI_FALSE;
-	static int stay_count = 5;
+	static int stay_count = MALI_DVFS_STAY_COUNT;
 
 	MALI_DEBUG_PRINT(4, ("> mali_dvfs_status: %d \n",utilization));
 
@@ -857,7 +883,7 @@ static mali_bool mali_dvfs_status(unsigned int utilization)
 		/*check if boost up or not*/
 		if(maliDvfsStatus.currentStep < nextStatus) {
 			boostup = 1;
-			stay_count = 5;
+			stay_count = MALI_DVFS_STAY_COUNT;
 		} else if (maliDvfsStatus.currentStep > nextStatus){
 			stay_count--;
 		}
@@ -871,11 +897,11 @@ static mali_bool mali_dvfs_status(unsigned int utilization)
 				return MALI_FALSE;
 			}
 			boostup = 0;
-			stay_count = 5;
+			stay_count = MALI_DVFS_STAY_COUNT;
 		}
 	}
 	else
-		stay_count = 5;
+		stay_count = MALI_DVFS_STAY_COUNT;
 	return MALI_TRUE;
 }
 
